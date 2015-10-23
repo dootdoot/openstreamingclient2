@@ -22,11 +22,11 @@ import net.protobufs.SteammessagesRemoteclientDiscovery.ERemoteClientService;
 public class DiscoveryProtocolHandler implements Runnable{
 	private final long timeout = 10000;	//The discovery packet timeout in milliseconds
 	public static final int DISCOVERY_PORT = 27036;	//The port used for the discovery protocol
-	private static final String LOCAL_IP = "10.132.148.246";	//IP address of local machine
 	public static final byte[] PACKET_PREHEADER = {(byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, 0x21, 0x4c, 0x5f, (byte) 0xa0};	//Packets start with this
-	private static final long CLIENT_ID = 12345678L;
-	private static final long STEAM_ID = ;
-	private static final int AUTH_KEY = ;
+	private final long clientID;
+	private final long steamID;	//This is your Steam ID 64 <the 64 part is really important
+	private final int authID;
+	private final String localIP;	//IP address of local machine
 
 	private DatagramSocket discoverySocket;	//The socket for discovering Steam streaming servers
 	/*
@@ -36,7 +36,15 @@ public class DiscoveryProtocolHandler implements Runnable{
 	 */
 	private HashMap<InetAddress, CMsgRemoteClientBroadcastStatus> serverTable;
 	
-	public DiscoveryProtocolHandler(){
+	public DiscoveryProtocolHandler(long steamID, int authKey, String localIP){
+		this(steamID, authKey, 12345678L, localIP);
+	}
+	
+	public DiscoveryProtocolHandler(long steamID, int authKey, long clientID, String localIP){
+		this.steamID = steamID;
+		this.authID = authKey;
+		this.clientID = (clientID == 0 ? 12345678L : clientID);
+		this.localIP = localIP;
 		serverTable = new HashMap<InetAddress, CMsgRemoteClientBroadcastStatus>();
 	}
 	
@@ -49,7 +57,7 @@ public class DiscoveryProtocolHandler implements Runnable{
 			discoverySocket = new DatagramSocket(DISCOVERY_PORT);
 		} catch (SocketException e) {
 			System.err.println("Error thrown when createing a new UDP socket on port " + DISCOVERY_PORT +
-					"Check to see if Steam is running (you can't run the client and Steam at the same time, " +
+					". Check to see if Steam is running (you can't run the client and Steam at the same time, " +
 					"they use the same port because the client has to mock Steam");
 			e.printStackTrace();
 			System.exit(1);
@@ -61,9 +69,8 @@ public class DiscoveryProtocolHandler implements Runnable{
 		//TODO listen on multicast instead of doing this
 		try {
 			sendDiscoveryPacket();
-		} catch (IOException e2) {
-			// TODO Auto-generated catch block
-			e2.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 		
 		while(true) {
@@ -138,14 +145,14 @@ public class DiscoveryProtocolHandler implements Runnable{
 		switch(header.getMsgType()){
 			case k_ERemoteClientBroadcastMsgDiscovery:	//This is the first packet sent, to the multicast address
 				body = SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastDiscovery.parseFrom(bodyBytes);
-				if(!(packet.getSocketAddress().equals(new InetSocketAddress(LOCAL_IP, DISCOVERY_PORT)))){	//If the packet didn't come from this client, then
+				if(!(packet.getSocketAddress().equals(new InetSocketAddress(localIP, DISCOVERY_PORT)))){	//If the packet didn't come from this client, then
 					sendDiscoveryPacket();	//Send a discovery packet,
 					sendStatusPacket(packet.getAddress());	//And a status packet to the sender
 				}
 				break;
 			case k_ERemoteClientBroadcastMsgStatus:	//This is sent when a discovery packet is received
 				body = SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastStatus.parseFrom(bodyBytes);
-				if(!packet.getAddress().equals(new InetSocketAddress(LOCAL_IP, 27036).getAddress())){	//If the packet didn't come from this client, then
+				if(!packet.getAddress().equals(new InetSocketAddress(localIP, 27036).getAddress())){	//If the packet didn't come from this client, then
 					serverTable.put(packet.getAddress(), (CMsgRemoteClientBroadcastStatus) body);	//Puts the server entry into the list
 				}
 				break;
@@ -198,7 +205,7 @@ public class DiscoveryProtocolHandler implements Runnable{
 		 * Then we build the object.
 		 */		
 		SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastHeader header = SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastHeader.newBuilder().
-			setClientId(CLIENT_ID).
+			setClientId(clientID).
 			setMsgType(SteammessagesRemoteclientDiscovery.ERemoteClientBroadcastMsg.k_ERemoteClientBroadcastMsgDiscovery).
 			build();
 		
@@ -253,7 +260,7 @@ public class DiscoveryProtocolHandler implements Runnable{
 		 * Then we build the object.
 		 */	
 		SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastHeader header = SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastHeader.newBuilder().
-			setClientId(CLIENT_ID).
+			setClientId(clientID).
 			setMsgType(SteammessagesRemoteclientDiscovery.ERemoteClientBroadcastMsg.k_ERemoteClientBroadcastMsgStatus).
 			build();
 		
@@ -273,8 +280,8 @@ public class DiscoveryProtocolHandler implements Runnable{
 		 * 		ID and AUTH key to another person's values.
 		 */
 		SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastStatus.User user = SteammessagesRemoteclientDiscovery.CMsgRemoteClientBroadcastStatus.User.newBuilder().
-				setSteamid(STEAM_ID).
-				setAuthKeyId(AUTH_KEY).
+				setSteamid(steamID).
+				setAuthKeyId(authID).
 				build();
 		
 		/*
